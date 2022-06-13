@@ -1,0 +1,865 @@
+import copy
+import random
+import numpy as np
+import tensorflow as tf
+import matplotlib as mpl
+from random import shuffle
+from scipy import optimize
+from scipy.stats import chi2
+from pandas import DataFrame
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import Normalizer
+from matplotlib.pyplot import MultipleLocator
+from sklearn.model_selection import train_test_split
+from sklearn.gaussian_process import GaussianProcessRegressor
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+
+    #############################
+    ### 刺激集
+    #############################
+
+def numerosity_sampling_359_c1(rows = 64, cols = 64, numrange=range(1,30), minmaxrad=[1,3], PentagonRad=25, subsamplesNr=1, mode='control1'):	
+
+# 非符号数字样本生成程序
+# 生成四个控制集.
+# 因此 mode = 'control1', 'control2', 'control3', 'control4'
+# 每个数量图像的确定思路：输出为 numLabels[imgNr], numSamples[imgNr]. 
+# 对于每个数量 dotNr中的点，都从随机的行列中选择一个符合条件的点。确定好的点放入selpoint以便下一个点的判断。
+# PentagonRad是正五边形凸包的外接圆半径
+    dis = 5
+    r0 = int(rows/2)
+    c0 = int(cols/2)
+    arrnum = np.array(numrange)
+    imgAll = subsamplesNr*arrnum.size
+    numSamples = np.zeros((imgAll,rows,cols))
+    core_point = np.zeros(imgAll)
+    core_point=core_point.tolist()
+    numLabels = np.zeros(imgAll)
+    imgNr = 0
+    for dotNr in arrnum:
+        for subNr in range(subsamplesNr):
+            print('Numerosity: ',dotNr,'    ','SampleNo. ',subNr+1)
+            numLabels[imgNr] = dotNr
+            asample = numSamples[imgNr]
+            # ----------- 生成符合要求的点集 selpoint
+            selpoint = []
+            if mode == 'control1':   # 每个点的半径相同，都为3；面积相同，都为28；周长相同，都为18；距离随机。
+                arrrad = np.random.randint(3, 4,size=dotNr)
+                for ii in range(dotNr):
+                    TorF = False
+                    while TorF == False:
+                        praws = np.random.permutation(rows) # 乱序
+                        pcols = np.random.permutation(cols)
+                        for row in praws:
+                            for col in pcols:
+                                if ((row-arrrad[ii])<=0)|((row+arrrad[ii])>=(rows-1))|((col-arrrad[ii])<=0)|((col+arrrad[ii])>=(cols-1)):
+                                    TorF = False
+                                    continue
+                                rcr1 = (row,col,arrrad[ii])
+                                TorF = True
+                                for rcr0 in selpoint:
+                                    dist01 = int(np.sqrt((rcr0[0]-rcr1[0])**2+(rcr0[1]-rcr1[1])**2))
+                                    if dist01 <= (rcr0[2]+rcr1[2]):
+                                        TorF = False
+                                        break
+                                if TorF:
+                                    selpoint.append(rcr1)
+                                    break
+                            if TorF:
+                                break 
+            elif mode == 'control2': # 点的总面积始终等于最大面积，距离保持在1像素。
+                if dotNr == 1:
+                    arrrad = np.array([14]) 
+                else:
+                    arrrad1 = np.random.randint(int(minmaxrad[0]),int(minmaxrad[1]+1),size=dotNr) 
+                    rad1sum = np.sum(arrrad1)
+                    arrrad2 = np.sqrt(arrrad1)
+                    arrrad = 14*arrrad2/np.sqrt(rad1sum) 
+                    for arr in range(len(arrrad)):
+                        arrrad[arr] = int(arrrad[arr])
+				
+                for ii in range(dotNr):
+                    TorF = False
+                    while TorF == False:
+                        praws = np.random.permutation(rows)
+                        pcols = np.random.permutation(cols)
+                        for row in praws:
+                            for col in pcols:	
+                                if ((row-arrrad[ii])<=0)|((row+arrrad[ii])>=(rows-1))|((col-arrrad[ii])<=0)|((col+arrrad[ii])>=(cols-1)):
+                                    TorF = False
+                                    continue
+                                rcr1 = (row,col,arrrad[ii])
+                                TorF = True
+                                all_dis = [] # 平均距离；
+                                for rcr0 in selpoint:
+                                    dist01 = int(np.sqrt((rcr0[0]-rcr1[0])**2+(rcr0[1]-rcr1[1])**2))
+                                    all_dis = all_dis + [dist01]
+                                    if dist01 <= (rcr0[2]+rcr1[2]): # 每一个新图形与其他图像的距离都保持在1像素；
+                                        TorF = False
+                                        break
+                                if TorF:
+                                    selpoint.append(rcr1)
+                                    break
+                            if TorF:
+                                break				
+            elif mode == 'control3': # `点的总周长保持在恒定值。
+                if dotNr == 1:
+                    arrrad = np.array([30]) 
+                else:
+                    arrrad1 = np.random.randint(int(minmaxrad[0]),int(minmaxrad[1]+1),size=dotNr)
+                    rad1sum = np.sum(arrrad1)
+                    arrrad2 = np.sqrt(arrrad1)
+                    arrrad = 30*arrrad1/rad1sum 
+                    for arr in range(len(arrrad)):
+                        arrrad[arr] = round(arrrad[arr])
+                for ii in range(dotNr):
+                    TorF = False
+                    while TorF == False:
+                        praws = np.random.permutation(rows)
+                        pcols = np.random.permutation(cols)
+                        for row in praws:
+                            for col in pcols:	
+                                if ((row-arrrad[ii])<=0)|((row+arrrad[ii])>=(rows-1))|((col-arrrad[ii])<=0)|((col+arrrad[ii])>=(cols-1)):
+                                    TorF = False
+                                    continue
+                                rcr1 = (row,col,arrrad[ii])
+                                TorF = True
+                                for rcr0 in selpoint:
+                                    dist01 = int(np.sqrt((rcr0[0]-rcr1[0])**2+(rcr0[1]-rcr1[1])**2))
+                                    if dist01 <= (rcr0[2]+rcr1[2]):
+                                        TorF = False
+                                        break
+                                if TorF:
+                                    selpoint.append(rcr1)
+                                    break
+                            if TorF:
+                                break                                
+            elif mode == 'control4': # 每个点的面积随机，正5边形凸包周长相同
+                arrrad = np.random.randint(int(minmaxrad[0]),int(minmaxrad[1]+1),size=dotNr)
+                # 确定外接圆半径为PentagonRad 的凸包顶点坐标。
+                # 思路：（1）以(r0,c0)为中心产生正5边形的外接圆；（2）在0-2pi中随机选择一个起始角度；
+                #       （3）从起始角度开始每增加2pi/5弧度取一个外接圆上点，共5个。以此作为正5边形的凸包顶点集；
+                #       （4）以(r0,c0)为中心设定正5边形的内接圆直径；
+                #       （5）求出内接圆区域所有的坐标点，作为数量大于5时，非凸包各点的选取点集；
+                #       （6）数量少于5则在凸包顶点中随机选择等于数量的点；
+                #       （7）数量大于5时，从非凸包点集选取剩余数量的点。
+                hulllist = []
+                jj = 0
+                initangle = np.pi*np.random.rand()
+                for aa in np.linspace(0.0+initangle,2.0*np.pi+initangle,num=5,endpoint=False):
+                    deltaRow = int(round(PentagonRad*np.sin(aa)))
+                    deltaCol = int(round(PentagonRad*np.cos(aa)))
+                    hrow = r0 + deltaRow
+                    hcol = c0 + deltaCol
+                    while ((hrow-arrrad[jj])<0)|((hrow+arrrad[jj])>(rows-1))|((hcol-arrrad[jj])<0)|((hcol+arrrad[jj])>(cols-1)): # 之所以有加2减2是为了后面计算周围抑制的时候方便一些；
+                        arrrad[jj] = arrrad[jj] - 1
+                        if arrrad[jj] == 0: #
+                            print('凸包半径过大！请重新设置.')
+                            return 
+                    hulllist.append((hrow,hcol,arrrad[jj]))
+                    jj += 1
+                    if jj >= dotNr:
+                        jj = dotNr-1
+                #print(hulllist)
+                if dotNr <= 5:                    
+                    for jj in np.random.permutation(range(dotNr)):
+                        selpoint.append(hulllist[jj])
+                else:
+                    selpoint = copy.deepcopy(hulllist)
+					
+                    for ii in range(dotNr-5):
+                        TorF = False
+                        while TorF == False:
+                            praws = np.random.permutation(rows)
+                            pcols = np.random.permutation(cols)
+                            for row in praws:
+                                for col in pcols:	
+                                    if ((row-arrrad[ii])<=0)|((row+arrrad[ii])>=(rows-1))|((col-arrrad[ii])<=0)|((col+arrrad[ii])>=(cols-1)): # 之所以有加2减2是为了后面计算周围抑制的时候方便一些；
+                                        TorF = False
+                                        continue
+                                    dist01 = int(np.sqrt((r0-row)**2+(c0-col)**2))
+                                    if (dist01+arrrad[ii])>PentagonRad:
+                                        TorF = False
+                                        continue
+                                    rcr1 = (row,col,arrrad[ii])
+                                    TorF = True
+                                    for rcr0 in selpoint:
+                                        dist01 = int(np.sqrt((rcr0[0]-rcr1[0])**2+(rcr0[1]-rcr1[1])**2))
+                                        if dist01 <= (rcr0[2]+rcr1[2]):
+                                            TorF = False
+                                            break
+                                    if TorF:
+                                        selpoint.append(rcr1)
+                                        break
+                                if TorF:
+                                    break
+            else:
+                print('Mode Error! ')
+                numSamples = []
+                numLabels = []
+                return numSamples,numLabels
+            # -----------  selpoint	确定完毕			
+            # ----------- 对selpoint的每个点，生成符合其半径设置的点，存入 asample
+            core_point[subNr+dotNr*subsamplesNr-1] = selpoint            # 之所以减1是因为dotNr是从1开始计数；
+            for apoint in selpoint:
+                shape_ = np.random.randint(0,2,size=1)[0] # 随机产生一个0或1的列表，长度为1。
+                asample[apoint[0],apoint[1]] = 1.0 # 255.0
+                if mode == 'control1':
+                    for rr in np.linspace(0.,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.01,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0
+                    asample[apoint[0]+3,apoint[1]  ] = 0.0
+                    asample[apoint[0]-3,apoint[1]  ] = 0.0
+                    asample[apoint[0]  ,apoint[1]+3] = 0.0
+                    asample[apoint[0]  ,apoint[1]-3] = 0.0
+                    asample[apoint[0]+2,apoint[1]+2] = 0.0
+                    asample[apoint[0]-2,apoint[1]-2] = 0.0
+                    asample[apoint[0]+2,apoint[1]-2] = 0.0
+                    asample[apoint[0]-2,apoint[1]+2] = 0.0
+                if mode == 'control2' or mode == 'control3':
+                    for rr in np.linspace(0.,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0
+                    asample[int(apoint[0].tolist())+int(apoint[2].tolist()),int(apoint[1].tolist())  ] = 0.0
+                    asample[int(apoint[0].tolist())-int(apoint[2].tolist()),int(apoint[1].tolist())  ] = 0.0
+                    asample[int(apoint[0].tolist())  ,int(apoint[1].tolist())+int(apoint[2].tolist())] = 0.0
+                    asample[int(apoint[0].tolist())  ,int(apoint[1].tolist())-int(apoint[2].tolist())] = 0.0
+
+                if mode == 'control2' or mode == 'control3':
+                    for rr in np.linspace(0.,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0
+                    asample[int(apoint[0].tolist())+int(apoint[2].tolist()),int(apoint[1].tolist())  ] = 0.0
+                    asample[int(apoint[0].tolist())-int(apoint[2].tolist()),int(apoint[1].tolist())  ] = 0.0
+                    asample[int(apoint[0].tolist())  ,int(apoint[1].tolist())+int(apoint[2].tolist())] = 0.0
+                    asample[int(apoint[0].tolist())  ,int(apoint[1].tolist())-int(apoint[2].tolist())] = 0.0
+                    asample[int(apoint[0].tolist())  ,int(apoint[1].tolist())] = 1.0
+                if mode == 'control4' and (apoint[2] > 3): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0
+                    asample[apoint[0],apoint[1]+round(apoint[2])] = 0
+                    
+                if mode == 'control4' and (apoint[2] == 1 and shape_ == 0): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+1,apoint[1]] = 1.0
+                    asample[apoint[0]-1,apoint[1]] = 1.0
+                    asample[apoint[0],apoint[1]+1] = 1.0
+                    asample[apoint[0],apoint[1]-1] = 1.0
+
+                if mode == 'control4' and (apoint[2] == 2 and shape_ == 0): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+1,apoint[1]+2] = 1.0
+                    asample[apoint[0]-1,apoint[1]+2] = 1.0
+
+                if mode == 'control4' and (apoint[2] == 3 and shape_ == 0): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+3,apoint[1]-1] = 1.0
+                    asample[apoint[0]+3,apoint[1]] = 1.0
+                    asample[apoint[0]+3,apoint[1]+1] = 1.0
+                    asample[apoint[0]-3,apoint[1]-1] = 1.0
+                    asample[apoint[0]-3,apoint[1]] = 1.0
+                    asample[apoint[0]-3,apoint[1]+1] = 1.0
+                    asample[apoint[0]-1,apoint[1]-3] = 1.0
+                    asample[apoint[0],apoint[1]-3] = 1.0
+                    asample[apoint[0]+1,apoint[1]-3] = 1.0
+                    asample[apoint[0]-1,apoint[1]+3] = 1.0
+                    asample[apoint[0],apoint[1]+3] = 1.0
+                    asample[apoint[0]+1,apoint[1]+3] = 1.0
+
+                if mode == 'control4' and (apoint[2] == 1 and shape_ == 1): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+1,apoint[1]] = 1.0
+                    asample[apoint[0]-1,apoint[1]] = 1.0
+
+                if mode == 'control4' and (apoint[2] == 2 and shape_ == 1):
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+2,apoint[1]-2] = 1.0
+                    asample[apoint[0]+2,apoint[1]-1] = 1.0
+                    asample[apoint[0]+2,apoint[1]] = 1.0
+                    asample[apoint[0]+2,apoint[1]+1] = 1.0
+                    asample[apoint[0]+2,apoint[1]+2] = 1.0
+                    asample[apoint[0]-2,apoint[1]-2] = 1.0
+                    asample[apoint[0]-2,apoint[1]-1] = 1.0
+                    asample[apoint[0]-2,apoint[1]] = 1.0
+                    asample[apoint[0]-2,apoint[1]+1] = 1.0
+                    asample[apoint[0]-2,apoint[1]+2] = 1.0
+                    asample[apoint[0]-2,apoint[1]-2] = 1.0
+                    asample[apoint[0]-1,apoint[1]-2] = 1.0
+                    asample[apoint[0],apoint[1]-2] = 1.0
+                    asample[apoint[0]+1,apoint[1]-2] = 1.0
+                    asample[apoint[0]+2,apoint[1]-2] = 1.0
+                    asample[apoint[0]-2,apoint[1]+2] = 1.0
+                    asample[apoint[0]-1,apoint[1]+2] = 1.0
+                    asample[apoint[0],apoint[1]+2] = 1.0
+                    asample[apoint[0]+1,apoint[1]+2] = 1.0
+                    asample[apoint[0]+2,apoint[1]+2] = 1.0
+                    
+                if mode == 'control4' and (apoint[2] == 3 and shape_ == 1): 
+                    for rr in np.linspace(0.0,apoint[2],num=10*int(apoint[2].tolist())):   
+                        for aa in np.linspace(0.0,2.0*np.pi,num=50*int(apoint[2].tolist())):  
+                            deltaRow = int(rr*np.sin(aa))
+                            deltaCol = int(rr*np.cos(aa))
+                            drow = apoint[0] + deltaRow
+                            dcol = apoint[1] + deltaCol
+                            asample[drow,dcol] = 1.0 # 1.0.0
+                    asample[apoint[0]+3,apoint[1]] = 1.0
+                    asample[apoint[0]-3,apoint[1]] = 1.0
+                    asample[apoint[0],apoint[1]+3] = 1.0
+                    asample[apoint[0],apoint[1]-3] = 1.0
+                    asample[apoint[0]+2,apoint[1]+2] = 0.0
+                    asample[apoint[0]+2,apoint[1]-2] = 0.0
+                    asample[apoint[0]-2,apoint[1]+2] = 0.0
+                    asample[apoint[0]-2,apoint[1]-2] = 0.0
+            numSamples[imgNr] = asample		
+            imgNr += 1
+
+    print('   ')
+    print('Mission finished!')
+    return numSamples, numLabels,core_point
+
+    #############################
+    ### 基于侧向抑制的数值认知模型
+    #############################
+
+class NN(object):
+	def __init__(self,input_n,output_n,max_object_number):
+		self.Train_Data = tf.placeholder(dtype=tf.float64,shape=(max_object_number, input_n),name='input_dataset')#训练数据集(无符号）		
+		self.input_n = input_n                                                                       # 输入层神经元个数
+		self.output_n = output_n                                                                     # 输出层神经元个数
+		self.input_weights = tf.Variable(tf.truncated_normal(shape = [self.input_n, self.output_n], mean = 0.5, stddev = 0.05,dtype=tf.float64),trainable=True)                 # 输入层与输出层之间的权重
+		self.output_cells = tf.reshape(tf.matmul(self.Train_Data,self.input_weights), [max_object_number, output_n])
+	def test(self,Train_Data,max_object_number):
+		test_resp_hide = []                                                                         # 输出层响应
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			test_resp_hide = sess.run(self.output_cells,feed_dict={self.Train_Data:Train_Data[:]})
+			return test_resp_hide
+			
+	############################
+	# 侧向抑制函数
+	############################
+
+def SFT_Gauss2d(orignalData, epsilon=0.0, sigma0=24.0, sigma1 = 0.25, suppreMaxDist = 64, mode='iso', sweepmode='determination', sigmaArr=[]):    
+### 二维高斯抑制场变换函数
+### 计算思路： 围绕当前像素currPixel由内向外环绕计算，如果某一环绕的所有抑制值都小于epsilon，则当前像素currPixel对周边的抑制计算完成，当前像素调整为下一个。
+###            如果当前像素currPixel周边的像素抑制后的计算值小于0，则设置为0.
+# orignalData是一个二维数组，通常表示一个灰度图像，灰度值为0-1。orignalData必须是一个二维数组否则出错！
+# epsilon表示如果某一点像素值小于此值，则跳过不予考虑
+# sigma0为高斯函数sigma参数的初值，此值越大，某一像素对周边的抑制程度越大
+# suppreMaxDist表示某一像素对周边抑制的最大距离，此值最小为1，类似卷积神经网络中核函数的尺寸，转换方式为：卷积核函数尺寸=suppreMaxDist*2+1
+# mode表示抑制场是各向同性的、垂直异性的、水平异性的还是双向异性的。 #mode='iso', mode='anisoVer', mode='anisoHor', mode='anisoBoth', mode='random', mode='semirondom'
+# sweepmode表示图像每个像素的扫描方式。 sweepmode='determination'表示行列都从0逐渐增大的方式进行， sweepmode='stochastic'表示行列的选择是随机排列的。
+# sigmaArr表示为所有sigma事先赋值。
+    random_sigma = np.random.randn(np.shape(orignalData)[1]*np.shape(orignalData)[2])
+    outData_ = np.copy(orignalData)
+    outData = np.copy(orignalData) # deepcopy，outData不会随着orignalData变化而变化；
+    datashape = np.shape(outData)
+    figs = datashape[0]
+    rows = datashape[1]
+    cols = datashape[2]
+    if sweepmode == 'determination':
+        figsset = np.arange(figs)
+        rowsSet = np.arange(rows)
+        colsSet = np.arange(cols)
+    elif sweepmode == 'stochastic':
+        figsset = np.random.permutation(figs)
+        rowsSet = np.random.permutation(rows)
+        colsSet = np.random.permutation(cols)
+    else:
+        figsset = np.arange(figs)
+        rowsSet = np.arange(rows)
+        colsSet = np.arange(cols)
+	
+    for fig in figsset:
+        for row in rowsSet:
+            for col in colsSet:
+                currPixel = outData[fig,row,col]
+                if currPixel <= epsilon: # 如果row行col列的像素值小于epsilon，则跳过
+                    continue
+                if mode == 'iso':
+                    sigma = sigma0
+                elif mode == 'anisoVer':
+                    sigma = sigma0*(np.sqrt((row-32)**2 + (col-32)**2)) # 
+                elif mode == 'random':   # 全正态分布随机赋值
+                    sigma = np.maximum(0, sigma1*random_sigma[row*np.shape(orignalData)[1] + col] + sigma0)
+                elif mode == 'semirondom':   # 接受固定的全正态分布随机赋值
+                    if sigmaArr == []:
+                        sigma = 2.0*np.random.randn() + sigma0
+                    else:
+                        sigma = sigmaArr[fig,row,col]
+                else:
+                    sigma = sigma0 # 目前只设计了垂直各向异性，其它都当成各向同性
+                    
+                r_m = row - suppreMaxDist
+                if r_m < 0:
+                    r_m = 0
+                r_a = row + suppreMaxDist
+                if r_a > rows-1:
+                    r_a = rows-1
+                c_m = col - suppreMaxDist
+                if c_m < 0:
+                    c_m = 0
+                c_a = col + suppreMaxDist
+                if c_a > cols-1:
+                    c_a = cols-1
+                for ii in range(r_m,r_a+1,1):
+                    for jj in range(c_m,c_a+1,1):
+                        if ((ii==row) and (jj==col)):
+                            continue
+                        rAB2 = np.square(ii-row) + np.square(jj-col)
+                        suppreFactor = np.exp(-rAB2/(2*sigma*sigma)) 
+                        suppreVal = (currPixel**2)*suppreFactor
+                        supprePixel = outData_[fig,ii,jj]-suppreVal
+                        if supprePixel < 0:
+                            supprePixel = 0
+                        outData_[fig,ii,jj] = supprePixel
+        outData = np.copy(outData_)         
+        print('This is ', fig, 'figure. Please wait a minites.')
+    return outData
+for i in range(1):
+	max_object_number = 30 # 最大物体数量：能够使拟合优度都有所下降，其中线性尺度下降最快；
+	recover_times = 30 # 重复次数：提到40对拟合优度貌似没啥影响；对偏好好像也没啥影响；
+	test_resp_all = np.zeros((recover_times, 400, max_object_number)) # np.zeros((recover_times, 400, max_object_number)) 30次训练时，每一次训练每一个输出单元的值的汇总；
+for abc in range(recover_times): # 取平均值:
+	print(abc)
+	input_n = 64*64 
+	output_n = 20*20 # 20*20
+	sigma_0 = 0.66
+	sigma_1 = 0.20
+	Test_Data, Test_labels, core_point = numerosity_sampling_359_c1(rows = int(np.sqrt(input_n))
+	, cols = int(np.sqrt(input_n)), numrange=range(1, max_object_number+ 1), minmaxrad=[1,3], PentagonRad = 30
+	, subsamplesNr=1, mode='control1') # mode = 'standard', 'control1', 'control2'
+	Test_Data_inh = SFT_Gauss2d(Test_Data, epsilon=0.001, sigma0=0.67, sigma1 = 0.4, suppreMaxDist = 500, mode='random', sweepmode='determination', sigmaArr=[]) # iso；
+	Test_Data_inh = Test_Data_inh.reshape(len(Test_Data_inh),input_n)
+	test_resp_hide = [] # 训练输出层响应
+	nn = NN(input_n,output_n,max_object_number)
+	test_resp_hide = nn.test(Test_Data_inh,max_object_number)
+	test_resp_hide = np.array(test_resp_hide).reshape(len(test_resp_hide), int(np.sqrt(output_n)), int(np.sqrt(output_n))).tolist()
+	test_resp_hide = SFT_Gauss2d(test_resp_hide, epsilon=0.001, sigma0=0.26, sigma1 = 0.22, suppreMaxDist = 500, mode='random', sweepmode='determination', sigmaArr=[]) # 'anisoVer'
+	test_resp_hide = np.array(test_resp_hide)
+	test_resp_hide = test_resp_hide.reshape(len(test_resp_hide), output_n)
+	test_resp_hide = np.transpose(test_resp_hide) # 转置
+	test_resp_all[abc] = test_resp_hide # 储存响应值。
+
+   ##########
+   ### 归一化
+   ##########
+   
+for abc in range(1):
+	#test_resp_all = test_resp_all.tolist()
+	pref_15 = [] # 记录重复运行中每一次所有节点偏好1~30的输出节点的数量；
+	pref_Index = [] # 记录重复运行中每一次所有节点偏好1~30的输出节点的索引；
+	pref = [] # 计算偏好1~30的输出节点的数量的平均值；
+	for i in range(recover_times):
+		pref_nub = np.zeros(max_object_number) # 记录每一次重复试验时偏好各个数量的节点的数量分布；
+		pref_Ind = np.zeros((max_object_number, 1)) # 记录每一次重复试验时偏好各个数量的节点的索引；
+		pref_nub = pref_nub.tolist()
+		pref_Ind = pref_Ind.tolist()
+		for j in range(400): # (400)
+			if max(test_resp_all[i][j]) > 0:
+				test_resp_all[i][j] = (test_resp_all[i][j]-min(test_resp_all[i][j]))/(max(test_resp_all[i][j])-min(test_resp_all[i][j]))
+				for k in range(30):	
+					if test_resp_all[i][j][k] == max(test_resp_all[i][j]):
+						ind = 0
+						if ind == 0:
+							pref_nub[k] += 1
+							pref_Ind[k].append(j)
+							break
+                        
+		for l in range(max_object_number):
+			pref_Ind[l] = pref_Ind[l][1:] # 删除掉之前无意义的0；
+		pref_15.append(pref_nub) #
+		pref_Index.append(pref_Ind) #
+	pref_T = np.array(pref_15).T
+	for m in range(max_object_number):
+		pref.append(np.mean(pref_T[m])) # 计算不同数量偏好的节点分布平均值；
+	pref
+	sum(pref)
+	
+   ##########
+   ### 计算偏好各个数值的节点的平均调谐曲线
+   ##########
+   
+	for abc in range(1):
+		Pref_mean = np.zeros((max_object_number, max_object_number)) # 偏好不同数量的响应的平均值；
+		Pref_std = np.zeros((max_object_number, max_object_number)) # 偏好不同数量的响应的误差值；
+		for j in range(max_object_number): # 依次遍历30个偏好；
+			if pref[j] != 0:
+				respons = [] # 记录400个节点中的所有偏好某一数量的节点对30个物体的响应；
+				for i in range(recover_times): # 依次遍历重复输入；
+					for k in range(len(pref_Index[i][j])): # 依次遍历偏好某一个数量的节点的所有索引；
+						respons.append(test_resp_all[i][pref_Index[i][j][k]]) # 汇总400个节点之中所有偏好某个数量的所有节点对30个物体的响应；
+				respons = np.array(respons).T
+				for l in range(max_object_number):
+					Pref_mean[j][l] = np.mean(respons[l])
+					Pref_std[j][l] = np.std(respons[l])
+
+   ##########
+   ### 计算拟合优度
+   ##########
+
+def f_gauss(x,  A, sigma):
+	return np.exp(-(x)**2/(2*sigma**2)) 
+
+def getIndexes(y_predict, y_data):
+	# SSE为和方差
+	SSE=sum((y_data-y_predict)**2)
+	u = np.mean(y_data)
+	SST=sum((y_data-u)**2)
+	SSR=SST-SSE
+	R_square=SSR/SST
+	return R_square
+
+
+for nn in range(1):
+	#pref = pref.tolist()
+	all_R_square = np.zeros((4, max_object_number)) # 储存所有的相关性系数（R^2），四代表四种不同的比例缩放，len(nummberrange)是每一个偏好数量的神经元群的相关性系数
+	all_sigma = np.zeros((4, max_object_number)) # 储存所有的sigma，四代表四种不同的比例缩放，len(nummberrange)是每一个偏好数量的神经元群的相关性系数
+	all_sigma_mean = np.zeros(max_object_number) # 储存所有的sigma，四代表四种不同的比例缩放，len(nummberrange)是每一个偏好数量的神经元群的相关性系数
+	all_R_square_mean = np.zeros(4) # 储存所有数量偏好神经元相关性系数（R^2）的平均值;
+	all_R_square_std = np.zeros(4) # 储存所有数量偏好神经元相关性系数（R^2）的标准差;
+	for form in range(4): # 对于每一种形式而言，产生其对应的缩放X轴;
+		for nu in range(max_object_number): #outputpre # 记得修改这里！
+			if pref[nu] != 0:
+				if form == 0:
+					Nummbers_trans = np.array([(x) for x in range(0, max_object_number)])
+				if form == 1:
+					Nummbers_trans = np.array([(x)**(0.5) for x in range(0, max_object_number)])
+				if form == 2:
+					Nummbers_trans = np.array([(x)**(0.33333333) for x in range(0, max_object_number)])
+				if form == 3:
+					Nummbers_trans = np.array([np.log(1+x) for x in range(0, max_object_number)])
+				Nummbers_trans = Nummbers_trans - Nummbers_trans[nu]		
+				train_resp_init_transpose = Pref_mean[nu].tolist() # 记得修改这里！
+				popt, pcov = optimize.curve_fit(f_gauss, Nummbers_trans, train_resp_init_transpose) # , method='trf'
+				all_sigma[form][nu] = abs(popt[1]) # 带宽拟合；
+				y_pred = f_gauss(Nummbers_trans, popt[0], popt[1]) # abs(popt[0]), abs(popt[1]))
+				all_R_square[form][nu] =  getIndexes(y_pred, train_resp_init_transpose) # 相关系数拟合
+	all_R_square = all_R_square.tolist()
+	all_sigma = all_sigma.tolist()
+	for form in range(4):
+		for uu in range(max_object_number):
+			all_R_square[form][uu] = abs(all_R_square[form][uu])
+			all_sigma[form][uu] = abs(all_sigma[form][uu])
+	for form in range(4):
+		for uu in range(pref.count(0)):
+			all_R_square[form].remove(0)
+			all_sigma[form].remove(0)
+		all_R_square_mean[form] = np.mean(all_R_square[form][:])
+		all_R_square_std[form] = np.std(all_R_square[form][:])/2
+	for nu in range(len(all_sigma[0])): #outputpre # 记得修改这里！
+		for form in range(4):
+			all_sigma_mean[nu] = all_sigma_mean[nu] + all_sigma[form][nu]/4
+	all_sigma_mean = all_sigma_mean.tolist()
+	for nu in range(len(all_sigma_mean)-len(all_sigma[0])):
+		all_sigma_mean.remove(0)
+	all_R_square_mean
+	pref
+	sum(pref)
+
+   ##########
+   ### 抑制前后的图像对比
+   ##########
+
+for nn in [0, 3, 8, 15, 24, 29]:
+
+	fig, ax = plt.subplots(1, 1, figsize=(4.3, 4.3))
+	fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+	plt.rcParams['font.family'] = ['sans-serif']
+	plt.rcParams['font.sans-serif'] = ['Times New Roman']
+	plt.rcParams.update({'font.size': 30})
+	Train_Data_shape = Test_Data.reshape(len(Test_Data),64*64).tolist()
+	plt.scatter([x%64 for x in range(64*64)], [y/64 for y in range(64*64)], s=20, cmap = 'gray', c = Train_Data_shape[nn], vmin=0, vmax=1, marker = ",")
+	#把y轴的刻度间隔设置为0.05，并存在变量里
+	#y_major_locator=MultipleLocator(0.5)
+	#ax.yaxis.set_major_locator(y_major_locator)
+	#把y轴的主刻度设置为0.5的倍数
+	#x_major_locator=MultipleLocator(5)
+	#ax.xaxis.set_major_locator(x_major_locator)
+	ax.set_xlim(0, 64)
+	ax.set_ylim(0, 64)
+	plt.xticks([])
+	plt.yticks([])
+	ax.spines['top'].set_visible(False) #去掉上边框
+	ax.spines['bottom'].set_color('gray') #下边框灰色
+	ax.spines['left'].set_color('gray') #左边框灰色
+	ax.spines['right'].set_visible(False) #去掉右边框
+	plt.show()
+
+   ##########
+   ### 计算F值，进行显著性检验
+   ##########
+
+def F_Value(y_predict, y_data):
+	# SSE为和方差
+	SSE=sum((y_data-y_predict)**2)
+	# 求R方，0<=R<=1，越靠近1,拟合效果越好
+	u = np.mean(y_data)
+	SST=sum((y_data-u)**2)
+	SSR=SST-SSE
+	F_V=SSR*(len(y_predict)-2)/SST
+	return F_V
+
+   ##########
+   ### 在线性尺度下，出偏好特定数值的平均响应曲线以及误差值
+   ##########
+
+if True:
+    #for i in range(25):
+		fig = plt.figure()
+		ax = fig.add_subplot(111)
+		plt.rcParams['font.family'] = ['sans-serif']
+		plt.rcParams['font.sans-serif'] = ['Times New Roman']
+		plt.rcParams.update({'font.size': 50})
+		plt.subplots_adjust(left=.1, right=.9, bottom=.1, top=.95) # (bottom=0.11,left=0.08,right=0.92,top=0.92)
+		font = {'family':'Times New Roman','weight':'normal','size':50}
+		y_major_locator = MultipleLocator(0.2)
+		#把y轴的刻度间隔设置为0.5，并存在变量里
+		ax.yaxis.set_major_locator(y_major_locator)
+		#把y轴的主刻度设置为0.5的倍数
+		x_major_locator=MultipleLocator(5)
+		#把x轴的刻度间隔设置为1，并存在变量里
+		ax.xaxis.set_major_locator(x_major_locator)
+		#把x轴的主刻度设置为1的倍数
+		ax.set_xlim(0, max_object_number+1)
+		ax.set_ylim(-0.05, 1.1)
+		ax.spines['top'].set_visible(False) #去C掉上边框
+		ax.spines['bottom'].set_color('gray') #下边框灰色
+		ax.spines['left'].set_color('gray') #左边框灰色
+		ax.spines['right'].set_visible(False) #去掉右边框
+	#	plt.xlabel('Numerosity', font)
+	#	plt.ylabel('Normalized response', font)
+	#	plt.title('线性尺度下的响应曲线') # mode = 'Standard', 'Control1', 'Control2'test_resp_hide
+#		plt.plot([1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30], train_resp_mean[:], linewidth=3) # 900个点的输出响应图；#测试HDNN和生物实验的每一幅图；
+	#	for nu in range(16): # 出HDNN和生物实验的图；
+	#		plt.plot([1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30], Pref_mean[nu], linewidth=3) # 900个点的输出响应图；
+	
+		for nu in [1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]: # 出自己的图；
+			if max(Pref_mean[nu-1]) > 0:
+				plt.plot(range(1, max_object_number+1), Pref_mean[nu-1], linewidth=3) # 900个点的输出响应图；
+		plt.show()
+
+   ##########
+   ### 在对数尺度下，出偏好特定数值的平均响应曲线以及误差值
+   ##########
+
+for nu in range(1): # for nu in range(len(regular_train_resp)):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        #fig, ax = plt.subplots(1, 1, figsize=(2.5, 1.4))
+        fig.subplots_adjust(left=.1, right=.9, bottom=.1, top=.95) 
+        plt.rcParams['font.family'] = ['sans-serif']
+        plt.rcParams['font.sans-serif'] = ['Times New Roman']
+        mpl.rcParams['axes.unicode_minus'] =False # 解决负号显示问题；
+        plt.rcParams.update({'font.size': 50})
+        #plt.subplots_adjust(bottom=0.11,left=0.08,right=0.92,top=0.92)
+        font = {'family':'Times New Roman','weight':'normal','size':50}
+    #    plt.xlabel('Numerosity', font)
+    #    plt.ylabel('Normalized response', font)	
+        y_major_locator = MultipleLocator(0.2)
+        #把y轴的刻度间隔设置为0.5，并存在变量里
+        ax.yaxis.set_major_locator(y_major_locator)
+        #把y轴的主刻度设置为0.5的倍数
+        x_major_locator=MultipleLocator(5)
+        #把x轴的刻度间隔设置为1，并存在变量里
+        ax.xaxis.set_major_locator(x_major_locator)
+        #把x轴的主刻度设置为1的倍数
+        ax.set_xlim(0.9, max_object_number+4)
+        ax.set_ylim(-0.05, 1.1)
+        ax.spines['top'].set_visible(False) #去掉上边框
+        ax.spines['bottom'].set_color('gray') #下边框灰色
+        ax.spines['left'].set_color('gray') #左边框灰色
+        ax.spines['right'].set_visible(False) #去掉右边框
+        Line_color = ['limegreen', 'slategrey', 'cornflowerblue', 'tomato', 'hotpink']
+       # for nu in range(len(test_resp_hide)):
+        #    ax.semilogx(range(1, max_object_number+1), test_resp_hide[nu], linewidth=3) # 900个点的输出响应图；
+        for nu in [1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]: # outputpre   # 记得修改这里！
+            if max(Pref_mean[nu-1]) > 0:
+                ax.semilogx(range(1, max_object_number+1), Pref_mean[nu-1], basex = 2.718281828459045, linewidth=3) # marker='s', markersize = 15, label = '', c = 'k'  # 记得修改这里！
+        plt.xticks([1, 2, 4, 8, 16, 32], [1, 2, 4, 8, 16, 32])
+        plt.show()
+    
+   ##########
+   ### 出偏好不同数值的节点分布柱状图
+   ##########
+
+for nn in range(1):
+	pre = np.array(pref)/sum(pref)*100
+	pre_ = []
+	for numb in [1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]:
+		pre_.append(pre[numb-1])
+	pre_ = np.array(pre_)/sum(pre_)*100
+	font = {'family':'Times New Roman','weight':'normal','size': 50} # 30
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	#fig, ax = plt.subplots(1, 1, figsize=(2.5, 1.4))
+	fig.subplots_adjust(left=.1, right=.9, bottom=.1, top=.95)
+	plt.rcParams['font.family'] = ['sans-serif']
+	plt.rcParams['font.sans-serif'] = ['Times New Roman']
+	plt.rcParams.update({'font.size': 50})  # 30
+	#plt.subplots_adjust(bottom=0.11,left=0.08,right=0.92,top=0.92)
+	plt.bar([1,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30], pre_, width = 1, facecolor='cornflowerblue', edgecolor='cornflowerblue') # elinewidth是误差棒粗细；, capsize = 2, capthick = 2分别是误差棒变边界横杠的大小和厚度；
+#	plt.xlabel('Preferred numerosity', font)
+#	plt.ylabel('Percentage of neurons', font)
+	y_major_locator=MultipleLocator(5) # 10(输出无抑制) 5(正常) 20(输入无抑制) 20(输入输出无抑制)
+	#把y轴的刻度间隔设置为0.05，并存在变量里
+	ax.yaxis.set_major_locator(y_major_locator)
+	x_major_locator=MultipleLocator(5)
+	ax.xaxis.set_major_locator(x_major_locator)
+	#把y轴的主刻度设置为0.5的倍数
+	ax.set_ylim(0, 37) # 52(输出无抑制) 37(正常) 92(输入无抑制) 72(输入输出无抑制)
+	ax.set_xlim(-1, 32)
+	ax.spines['top'].set_visible(False) #去掉上边框
+	ax.spines['bottom'].set_color('gray') #下边框灰色
+	ax.spines['left'].set_color('gray') #左边框灰色
+	ax.spines['right'].set_visible(False) #去掉右边框
+#	plt.title('Standard')  # 因此 mode = 'Standard', 'Control1', 'Control2' # 记得修改这里！
+	plt.show()
+    
+   ##########
+   ### 出四种尺度下，平均响应曲线与高斯函数的拟合优度柱状图
+   ##########
+	
+for nn in range(1):
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	#fig, ax = plt.subplots(1, 1, figsize=(2.5, 1.4))
+	fig.subplots_adjust(left=.1, right=.9, bottom=.1, top=.95)
+	plt.rcParams['font.family'] = ['sans-serif']
+	plt.rcParams['font.sans-serif'] = ['Times New Roman']
+	plt.rcParams.update({'font.size': 50}) # 30
+	#plt.subplots_adjust(bottom=0.11,left=0.08,right=0.92,top=0.92)
+	plt.bar([1, 2, 3, 4], all_R_square_mean, width = 0.5, facecolor='cornflowerblue', edgecolor='cornflowerblue') # elinewidth是误差棒粗细；, capsize = 2, capthick = 2分别是误差棒变边界横杠的大小和厚度；
+	plt.errorbar([1, 2, 3, 4], all_R_square_mean, fmt='.', yerr = all_R_square_std/2, ecolor = 'k', color='k', elinewidth = 2., capsize = 4, capthick = 2) # elinewidth是误差棒粗细；分别是误差棒变边界横杠的大小和厚度；
+	font = {'family':'Times New Roman','weight':'normal','size':50} # 30
+#	plt.xlabel('Scale', font)
+#	plt.ylabel('Goodness of fit[r^2]', font)
+	y_major_locator=MultipleLocator(0.2)
+	#把y轴的刻度间隔设置为0.05，并存在变量里
+	ax.yaxis.set_major_locator(y_major_locator)
+	#把y轴的主刻度设置为0.5的倍数
+	plt.xticks([1, 2, 3, 4], ['Linear', 'Pow(1/2)', 'Pow(1/3)', 'Log'],size = 40)
+	ax.set_ylim(0., 1.00)
+	ax.spines['top'].set_visible(False) #去掉上边框
+	ax.spines['bottom'].set_color('gray') #下边框灰色
+	ax.spines['left'].set_color('gray') #左边框灰色
+	ax.spines['right'].set_visible(False) #去掉右边框
+#	plt.title('Standard')  # 因此 mode = 'Standard', 'Control1', 'Control2' # 记得修改这里！
+	plt.show()
+
+   ##########
+   ### 出四种尺度下，平均响应曲线的带宽与偏好数值的线形图
+   ##########
+   
+def f_line(x, r, A):
+	return r*x + A
+
+for nn in range(1):
+#	outputpre = 30
+#	max_object_number = 30
+	all_sigma = np.array(all_sigma)
+	all_sigma_r = np.zeros(4)
+	all_sigma_A = np.zeros(4)
+	R_square = np.zeros(4) # 储存所有的相关性系数（R^2），四代表四种不同的比例缩放;
+	Nummbers_trans=[]
+	for Xindex in range(30):
+		if pref[Xindex] != 0:
+			Nummbers_trans.append(Xindex)
+	Nummbers_trans = np.array(Nummbers_trans)
+	# Nummbers_trans = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,19, 20, 22, 21, 23, 24, 25, 26, 27, 28, 29])
+	for form in range(4): # 对于每一种形式而言，产生其对应的缩放X轴;
+		popt, pcov = optimize.curve_fit(f_line, Nummbers_trans, abs(all_sigma[form][:]), method='trf')
+		all_sigma_r[form] = popt[0] # 斜率；
+		#popt[1] = abs(popt[1]) # A；
+		all_sigma_A[form] = popt[1] # A；
+		y_pred = f_line(Nummbers_trans, *popt)
+		R_square[form] =  getIndexes(y_pred, abs(all_sigma[form][:])) # 相关系数拟合
+
+for nn in range(1):
+	outputpre = 30# 30#记得修改这里！
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	#fig, ax = plt.subplots(1, 1, figsize=(2.5, 1.4))
+	fig.subplots_adjust(left=.1, right=.9, bottom=.1, top=.95)
+	plt.rcParams['font.family'] = ['sans-serif']
+	plt.rcParams['font.sans-serif'] = ['Times New Roman']
+	plt.rcParams.update({'font.size': 50})#30
+	#plt.subplots_adjust(bottom=0.11,left=0.08,right=0.92,top=0.92)
+	
+	Line_color = ['limegreen', 'slategrey', 'cornflowerblue', 'tomato', 'hotpink']
+	
+	plt.scatter(Nummbers_trans + 1, abs(all_sigma[0][:]), color='slategrey')
+	plt.plot(Nummbers_trans + 1, all_sigma_r[0]*(Nummbers_trans + 1) + all_sigma_A[0], color='slategrey', linewidth=3, linestyle='--', label='Linear')
+	plt.scatter(Nummbers_trans + 1, abs(all_sigma[1][:]), color='limegreen')
+	plt.plot(Nummbers_trans + 1, all_sigma_r[1]*(Nummbers_trans + 1) + all_sigma_A[1], color='limegreen', linewidth=3, linestyle='--', label='Pow(1/2)')
+	plt.scatter(Nummbers_trans + 1, abs(all_sigma[2][:]), color='cornflowerblue')
+	plt.plot(Nummbers_trans + 1, all_sigma_r[2]*(Nummbers_trans + 1) + all_sigma_A[2], color='cornflowerblue', linewidth=3, linestyle='--', label='Pow(1/3)')
+	plt.scatter(Nummbers_trans + 1, abs(all_sigma[3][:]), color='tomato')
+	plt.plot(Nummbers_trans + 1, all_sigma_r[3]*(Nummbers_trans + 1) + all_sigma_A[3], color='tomato', linewidth=3, linestyle='--', label='Log')
+	font = {'family':'Times New Roman','weight':'normal','size':50} #30
+	plt.legend(fontsize=25,loc='upper left')
+#	plt.xlabel('Numerosity', font)
+#	plt.ylabel('Sigma of Gaussian fit', font)
+	y_major_locator=MultipleLocator(5)
+	#把y轴的刻度间隔设置为0.05，并存在变量里
+	ax.yaxis.set_major_locator(y_major_locator)
+	#把y轴的主刻度设置为0.5的倍数
+	x_major_locator=MultipleLocator(5)
+	ax.xaxis.set_major_locator(x_major_locator)
+	ax.set_xlim(0, outputpre+1)
+	ax.set_ylim(0., 17) # 22(输入层未抑制) 15(输出层未抑制) 22(正常)
+	ax.spines['top'].set_visible(False) #去掉上边框
+	ax.spines['bottom'].set_color('gray') #下边框灰色
+	ax.spines['left'].set_color('gray') #左边框灰色
+	ax.spines['right'].set_visible(False) #去掉右边框
+	#plt.title('Standard')  # 因此 mode = 'Standard', 'Control1', 'Control2' # 记得修改这里！
+	plt.show()
